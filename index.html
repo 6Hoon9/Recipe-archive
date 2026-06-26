@@ -110,8 +110,10 @@ button { cursor: pointer; }
 /* Bottom sheet */
 .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 50; display: none; }
 .sheet-bg.open { display: block; }
+.sheet-bg#editBg { z-index: 60; }
 .sheet { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg); border-radius: 20px 20px 0 0; max-height: 92vh; display: flex; flex-direction: column; z-index: 51; transform: translateY(100%); transition: transform 0.32s cubic-bezier(0.32,0.72,0,1); }
 .sheet.open { transform: translateY(0); }
+#editSheet { z-index: 61; }
 .sheet-handle { width: 36px; height: 4px; background: var(--border2); border-radius: 2px; margin: 10px auto 0; flex-shrink: 0; }
 .sheet-header { padding: 14px 16px 10px; border-bottom: 0.5px solid var(--border); flex-shrink: 0; display: flex; align-items: center; gap: 10px; }
 .sheet-header h2 { font-size: 16px; font-weight: 600; flex: 1; }
@@ -299,6 +301,33 @@ button { cursor: pointer; }
   <div class="sheet-body" id="detailBody"></div>
 </div>
 
+<!-- EDIT SHEET -->
+<div id="editBg" class="sheet-bg" onclick="closeEdit()"></div>
+<div id="editSheet" class="sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <h2>레시피 수정</h2>
+    <button class="sheet-close icon-btn" onclick="closeEdit()"><i class="ti ti-x"></i></button>
+  </div>
+  <div class="sheet-body">
+    <div class="form-row">
+      <div class="form-group"><label>이모지</label><input type="text" class="form-input" id="eEmoji" maxlength="2"></div>
+      <div class="form-group"><label>요리 이름</label><input type="text" class="form-input" id="eName"></div>
+    </div>
+    <div class="form-group"><label>설명</label><input type="text" class="form-input" id="eDesc"></div>
+    <div class="form-group"><label>재료 (쉼표 구분)</label><input type="text" class="form-input" id="eIngredients"></div>
+    <div class="form-row">
+      <div class="form-group"><label>조리 시간</label><input type="text" class="form-input" id="eTime"></div>
+      <div class="form-group"><label>난이도</label><select class="form-select" id="eDiff"><option>쉬움</option><option>보통</option><option>어려움</option></select></div>
+    </div>
+    <div class="form-group"><label>카테고리</label><div class="cat-grid" id="editCatGrid"></div></div>
+    <div class="form-group"><label>조리 순서 (줄바꿈으로 구분)</label><textarea class="form-textarea" id="eSteps" style="min-height:120px"></textarea></div>
+  </div>
+  <div class="sheet-footer">
+    <button class="btn-full" onclick="saveEdit()"><i class="ti ti-device-floppy"></i> 수정 완료</button>
+  </div>
+</div>
+
 <script>
 const STORAGE_KEY = 'recipe_archive_pwa_v1';
 let recipes = [], searchQuery = '', activeTag = '', activeCat = '', pendingRecipe = null;
@@ -333,17 +362,52 @@ function catPillHtml(id, sm=false) {
   return `<span style="${sz};border-radius:20px;background:${c.color};color:${c.text};border:0.5px solid ${c.border}">${c.emoji} ${c.label}</span>`;
 }
 
+const Storage = {
+  async get(key) {
+    if (typeof window.storage !== 'undefined') {
+      try {
+        const r = await window.storage.get(key);
+        return r && r.value ? r.value : null;
+      } catch(e) {}
+    }
+    return localStorage.getItem(key);
+  },
+  async set(key, value) {
+    if (typeof window.storage !== 'undefined') {
+      try { await window.storage.set(key, value); } catch(e) {}
+    }
+    try { localStorage.setItem(key, value); } catch(e) {}
+  }
+};
+
 async function load() {
+  let loaded = false;
   try {
-    const r = await window.storage.get(STORAGE_KEY);
-    if (r && r.value) recipes = JSON.parse(r.value);
-    else { recipes = DEFAULTS; await save(); }
-  } catch(e) { recipes = DEFAULTS; }
+    const val = await Storage.get(STORAGE_KEY);
+    if (val) {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) {
+        recipes = parsed;
+        loaded = true;
+      }
+    }
+  } catch(e) {
+    console.warn('load failed:', e);
+  }
+  if (!loaded) {
+    recipes = DEFAULTS;
+    await save();
+  }
   buildCatCheckboxes('manualCatGrid');
   render();
 }
-async function save() { try { await window.storage.set(STORAGE_KEY, JSON.stringify(recipes)); } catch(e) {} }
-
+async function save() {
+  try {
+    await Storage.set(STORAGE_KEY, JSON.stringify(recipes));
+  } catch(e) {
+    console.warn('save failed:', e);
+  }
+}
 function getTopIng() {
   const all = {};
   recipes.forEach(r => r.ingredients.forEach(i => { all[i]=(all[i]||0)+1; }));
@@ -567,7 +631,10 @@ function openDetail(id) {
     <div class="detail-meta"><span><i class="ti ti-clock" aria-hidden="true"></i> ${r.time}</span><span>${r.diff}</span></div>
     <div class="detail-section"><div class="detail-section-title">재료</div><div class="ing-chips">${chips}</div></div>
     ${steps?`<div class="detail-section"><div class="detail-section-title">조리 순서</div><ol class="steps-list">${steps}</ol></div>`:''}
-    <div class="delete-row"><button class="btn-danger" onclick="deleteRecipe(${r.id})"><i class="ti ti-trash"></i> 레시피 삭제</button></div>`;
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px">
+      <button class="btn-outline" onclick="openEdit(${r.id})"><i class="ti ti-pencil"></i> 수정</button>
+      <button class="btn-danger" onclick="deleteRecipe(${r.id})"><i class="ti ti-trash"></i> 삭제</button>
+    </div>`;
   document.getElementById('detailBg').classList.add('open');
   document.getElementById('detailSheet').classList.add('open');
 }
@@ -581,7 +648,52 @@ async function deleteRecipe(id) {
   recipes=recipes.filter(r=>r.id!==id); await save(); closeDetail(); render();
 }
 
-function renderStats() {
+let editingId = null;
+
+function openEdit(id) {
+  const r = recipes.find(x=>x.id===id); if(!r) return;
+  editingId = id;
+  document.getElementById('eEmoji').value = r.emoji || '';
+  document.getElementById('eName').value = r.name || '';
+  document.getElementById('eDesc').value = r.desc || '';
+  document.getElementById('eIngredients').value = (r.ingredients||[]).join(', ');
+  document.getElementById('eTime').value = r.time || '';
+  document.getElementById('eDiff').value = r.diff || '보통';
+  document.getElementById('eSteps').value = (r.steps||[]).join('\n');
+  buildCatCheckboxes('editCatGrid', r.categories||[]);
+  document.getElementById('editBg').classList.add('open');
+  document.getElementById('editSheet').classList.add('open');
+}
+function closeEdit() {
+  document.getElementById('editBg').classList.remove('open');
+  document.getElementById('editSheet').classList.remove('open');
+  editingId = null;
+}
+async function saveEdit() {
+  const name = document.getElementById('eName').value.trim();
+  const ingredients = document.getElementById('eIngredients').value.split(',').map(s=>s.trim()).filter(Boolean);
+  if(!name||!ingredients.length){alert('이름과 재료는 필수입니다.');return;}
+  const steps = document.getElementById('eSteps').value.trim().split('\n').map(s=>s.replace(/^\d+\.\s*/,'').trim()).filter(Boolean);
+  const idx = recipes.findIndex(r=>r.id===editingId);
+  if(idx===-1) return;
+  recipes[idx] = {
+    ...recipes[idx],
+    emoji: document.getElementById('eEmoji').value || '🍽️',
+    name,
+    desc: document.getElementById('eDesc').value || '',
+    ingredients,
+    time: document.getElementById('eTime').value || '-',
+    diff: document.getElementById('eDiff').value,
+    categories: getCheckedCats('editCatGrid'),
+    steps: steps.length ? steps : ['레시피 준비중'],
+  };
+  await save();
+  closeEdit();
+  openDetail(editingId);
+  render();
+}
+
+
   const total=recipes.length;
   const linked=recipes.filter(r=>r.source).length;
   const allIng={};
